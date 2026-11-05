@@ -16,19 +16,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
 
-enum class ContainerTone {
-    PRIMARY,
-    SECONDARY,
-    TERTIARY
-}
-
 sealed interface AppGlyph {
     data class Monochrome(val bitmap: ImageBitmap) : AppGlyph
     data class CategoryVector(@DrawableRes val drawableResId: Int) : AppGlyph
 }
 
 interface AppIconProvider {
-    fun getContainerTone(packageName: String): ContainerTone
     fun getCachedGlyph(packageName: String): AppGlyph?
     fun getCategoryFallback(packageName: String): AppGlyph.CategoryVector
     suspend fun resolveGlyph(packageName: String): AppGlyph
@@ -39,15 +32,6 @@ class PackageManagerAppIconProvider(context: Context) : AppIconProvider {
     private val appContext = context.applicationContext
     private val glyphCache = object : LruCache<String, AppGlyph>(MAX_CACHE_ENTRIES) {}
     private val lock = Any()
-
-    override fun getContainerTone(packageName: String): ContainerTone {
-        var hash = 0
-        for (ch in packageName) {
-            hash = (hash * 31 + ch.code) and Int.MAX_VALUE
-        }
-        val tones = ContainerTone.entries
-        return tones[hash % tones.size]
-    }
 
     override fun getCachedGlyph(packageName: String): AppGlyph? {
         if (packageName.isBlank()) return null

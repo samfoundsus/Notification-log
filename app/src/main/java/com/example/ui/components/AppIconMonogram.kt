@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.util.AppGlyph
 import com.example.util.AppIconProvider
-import com.example.util.ContainerTone
 
 @Composable
 fun AppIconMonogram(
@@ -35,10 +34,6 @@ fun AppIconMonogram(
     size: Dp = 40.dp,
     glyphSize: Dp = 22.dp
 ) {
-    val tone = remember(packageName, iconProvider) {
-        iconProvider.getContainerTone(packageName)
-    }
-
     var glyph by remember(packageName, iconProvider) {
         mutableStateOf<AppGlyph?>(iconProvider.getCachedGlyph(packageName))
     }
@@ -54,11 +49,8 @@ fun AppIconMonogram(
     }
 
     val colorScheme = MaterialTheme.colorScheme
-    val (containerColor, contentColor) = when (tone) {
-        ContainerTone.PRIMARY -> colorScheme.primaryContainer to colorScheme.onPrimaryContainer
-        ContainerTone.SECONDARY -> colorScheme.secondaryContainer to colorScheme.onSecondaryContainer
-        ContainerTone.TERTIARY -> colorScheme.tertiaryContainer to colorScheme.onTertiaryContainer
-    }
+    val containerColor = colorScheme.secondaryContainer
+    val contentColor = colorScheme.onSecondaryContainer
 
     Box(
         modifier = modifier
