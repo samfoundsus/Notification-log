@@ -1,0 +1,87 @@
+name: "Build APK"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.3.1"
+
+      - name: Ensure stable signing keystore
+        run: |
+          if [ ! -f app/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore app/debug.keystore \
+              -alias androiddebugkey \
+              -storepass android \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -f app/debug.keystore
+            git commit -m "Add signing keystore [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "Reusing existing app/debug.keystore"
+          fi
+
+      - name: Build release APK
+        run: |
+          if [ -f ./gradlew ]; then
+            chmod +x ./gradlew
+            GRADLE_CMD="./gradlew"
+          else
+            GRADLE_CMD="gradle"
+          fi
+          $GRADLE_CMD assembleRelease -x lintVitalRelease -x lintVitalAnalyzeRelease --no-daemon --stacktrace
+
+      - name: Locate and rename release APK
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/release -maxdepth 2 -type f -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No release APK found under app/build/outputs/apk/release/"
+            exit 1
+          fi
+          cp "$APK_PATH" NotificationLog.apk
+
+      - name: Upload APK workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NotificationLog
+          path: NotificationLog.apk
+
+      - name: Publish to GitHub Release (latest)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest NotificationLog.apk \
+            --prerelease \
+            --title "Latest build" \
+            --notes "Automated release APK build from commit ${{ github.sha }}"
