@@ -4,7 +4,7 @@
     <string name="cd_navigate_back">Navigate back</string>
     <string name="cd_clear_search">Clear search query</string>
     <string name="cd_search_icon">Search notifications</string>
-    <string name="search_placeholder">Search apps, titles, or messages</string>
+    <string name="search_placeholder">Search notifications</string>
     <string name="filter_all">All</string>
     <string name="day_today">Today</string>
     <string name="day_yesterday">Yesterday</string>

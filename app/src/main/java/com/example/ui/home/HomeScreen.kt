@@ -56,6 +56,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
@@ -264,12 +265,16 @@ private fun SearchPillBar(
     TextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = modifier.testTag("search_pill_bar"),
+        modifier = modifier
+            .height(56.dp)
+            .testTag("search_pill_bar"),
         placeholder = {
             Text(
                 text = stringResource(R.string.search_placeholder),
                 style = MaterialTheme.typography.bodyLarge,
-                color = colorScheme.onSurfaceVariant
+                color = colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         },
         leadingIcon = {
@@ -301,6 +306,7 @@ private fun SearchPillBar(
             }
         },
         singleLine = true,
+        maxLines = 1,
         textStyle = MaterialTheme.typography.bodyLarge,
         shape = RoundedCornerShape(28.dp),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),

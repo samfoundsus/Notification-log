@@ -17,63 +17,40 @@ class NotificationCaptureService : NotificationListenerService() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private data class RecentSignature(
-        val packageName: String,
-        val title: String,
-        val text: String,
-        val savedAtMillis: Long
-    )
+    private val recentKeyLock = Any()
+    private val lastContentHashByKey = object : LinkedHashMap<String, Int>(MAX_TRACKED_KEYS, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Int>?): Boolean {
+            return size > MAX_TRACKED_KEYS
+        }
+    }
 
-    private val recentLock = Any()
-    private val recentEntries = ArrayDeque<RecentSignature>(MAX_RECENT_ENTRIES)
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        serviceScope.launch {
+            try {
+                val activeList = getActiveNotifications() ?: return@launch
+                val sorted = activeList.sortedBy { it.postTime }
+                for (sbn in sorted) {
+                    try {
+                        captureAndStore(sbn)
+                    } catch (_: Throwable) {
+                        // Never allow one bad notification to stop importing the rest
+                    }
+                }
+            } catch (_: Throwable) {
+                // Ignore if system refuses getActiveNotifications
+            }
+        }
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        try {
-            if (sbn == null) return
-
-            val pkg = sbn.packageName?.takeIf { it.isNotBlank() } ?: return
-            if (pkg == applicationContext.packageName) return
-
-            val notification = sbn.notification ?: return
-            val flags = notification.flags
-
-            // Skip ongoing, foreground service, and group summary notifications
-            if (sbn.isOngoing) return
-            if ((flags and Notification.FLAG_ONGOING_EVENT) != 0) return
-            if ((flags and Notification.FLAG_FOREGROUND_SERVICE) != 0) return
-            if ((flags and Notification.FLAG_GROUP_SUMMARY) != 0) return
-
-            val extras: Bundle? = notification.extras
-            val title = extractTitle(extras)
-            val text = extractText(extras)
-
-            // Skip notifications with both title and text empty
-            if (title.isEmpty() && text.isEmpty()) return
-
-            val now = System.currentTimeMillis()
-            if (isDuplicateWithinWindow(pkg, title, text, now)) return
-
-            val postTime = if (sbn.postTime > 0L) sbn.postTime else now
-
-            serviceScope.launch {
-                try {
-                    val resolvedAppName = resolveAppName(pkg)
-                    val entity = NotificationEntity(
-                        packageName = pkg,
-                        appName = resolvedAppName,
-                        title = title,
-                        text = text,
-                        timestamp = postTime
-                    )
-                    AppDatabase.getInstance(applicationContext)
-                        .notificationDao()
-                        .insert(entity)
-                } catch (_: Throwable) {
-                    // Never allow database or PackageManager errors to crash the listener service
-                }
+        if (sbn == null) return
+        serviceScope.launch {
+            try {
+                captureAndStore(sbn)
+            } catch (_: Throwable) {
+                // Never allow a malformed notification to crash the service
             }
-        } catch (_: Throwable) {
-            // Never allow malformed notification extras to crash the listener service
         }
     }
 
@@ -91,22 +68,120 @@ class NotificationCaptureService : NotificationListenerService() {
         super.onDestroy()
     }
 
-    private fun extractTitle(extras: Bundle?): String {
-        if (extras == null) return ""
-        val primary = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
-        if (!primary.isNullOrEmpty()) return primary
-        val bigTitle = extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.trim()
-        return bigTitle.orEmpty()
+    private suspend fun captureAndStore(sbn: StatusBarNotification) {
+        val pkg = sbn.packageName?.takeIf { it.isNotBlank() } ?: return
+        if (pkg == applicationContext.packageName) return
+
+        val notification = sbn.notification ?: return
+        val extras: Bundle? = notification.extras
+
+        val resolvedAppName = resolveAppName(pkg)
+        val title = extractTitle(extras, resolvedAppName)
+        val text = extractText(extras, notification)
+
+        val key = sbn.key ?: "${pkg}_${sbn.id}_${sbn.tag.orEmpty()}"
+        if (isUnchangedForKey(key, title, text)) return
+
+        val postTime = if (sbn.postTime > 0L) sbn.postTime else System.currentTimeMillis()
+        val entity = NotificationEntity(
+            packageName = pkg,
+            appName = resolvedAppName,
+            title = title,
+            text = text,
+            timestamp = postTime
+        )
+
+        AppDatabase.getInstance(applicationContext)
+            .notificationDao()
+            .insert(entity)
     }
 
-    private fun extractText(extras: Bundle?): String {
-        if (extras == null) return ""
-        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim()
-        if (!bigText.isNullOrEmpty()) return bigText
-        val regularText = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
-        if (!regularText.isNullOrEmpty()) return regularText
-        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
-        return subText.orEmpty()
+    private fun extractTitle(extras: Bundle?, fallbackAppName: String): String {
+        if (extras != null) {
+            val candidates = arrayOf(
+                Notification.EXTRA_TITLE,
+                Notification.EXTRA_TITLE_BIG,
+                Notification.EXTRA_CONVERSATION_TITLE,
+                Notification.EXTRA_SUB_TEXT
+            )
+            for (extraKey in candidates) {
+                val value = safeCharSequenceToString(extras, extraKey)
+                if (value.isNotEmpty()) return value
+            }
+        }
+        return fallbackAppName.ifEmpty { FALLBACK_NO_TEXT }
+    }
+
+    private fun extractText(extras: Bundle?, notification: Notification): String {
+        if (extras != null) {
+            val bigText = safeCharSequenceToString(extras, Notification.EXTRA_BIG_TEXT)
+            if (bigText.isNotEmpty()) return bigText
+
+            val latestMessage = extractLatestMessageFromBundleArray(extras)
+            if (latestMessage.isNotEmpty()) return latestMessage
+
+            val textLines = extractJoinedTextLines(extras)
+            if (textLines.isNotEmpty()) return textLines
+
+            val regularText = safeCharSequenceToString(extras, Notification.EXTRA_TEXT)
+            if (regularText.isNotEmpty()) return regularText
+
+            val summaryText = safeCharSequenceToString(extras, Notification.EXTRA_SUMMARY_TEXT)
+            if (summaryText.isNotEmpty()) return summaryText
+
+            val infoText = safeCharSequenceToString(extras, Notification.EXTRA_INFO_TEXT)
+            if (infoText.isNotEmpty()) return infoText
+        }
+
+        val ticker = try {
+            notification.tickerText?.toString()?.trim().orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
+        if (ticker.isNotEmpty()) return ticker
+
+        return FALLBACK_NO_TEXT
+    }
+
+    @Suppress("DEPRECATION")
+    private fun extractLatestMessageFromBundleArray(extras: Bundle): String {
+        return try {
+            val parcelables = extras.getParcelableArray(Notification.EXTRA_MESSAGES) ?: return ""
+            for (i in parcelables.indices.reversed()) {
+                val bundle = parcelables[i] as? Bundle ?: continue
+                val msgText = bundle.getCharSequence("text")?.toString()?.trim().orEmpty()
+                val sender = bundle.getCharSequence("sender")?.toString()?.trim().orEmpty()
+                if (msgText.isNotEmpty() && sender.isNotEmpty()) {
+                    return "$sender: $msgText"
+                } else if (msgText.isNotEmpty()) {
+                    return msgText
+                } else if (sender.isNotEmpty()) {
+                    return sender
+                }
+            }
+            ""
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    private fun extractJoinedTextLines(extras: Bundle): String {
+        return try {
+            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES) ?: return ""
+            lines.mapNotNull { cs ->
+                cs?.toString()?.trim()?.takeIf { it.isNotEmpty() }
+            }.joinToString(separator = "\n")
+        } catch (_: Throwable) {
+            ""
+        }
+    }
+
+    private fun safeCharSequenceToString(extras: Bundle, key: String): String {
+        return try {
+            extras.getCharSequence(key)?.toString()?.trim().orEmpty()
+        } catch (_: Throwable) {
+            ""
+        }
     }
 
     private fun resolveAppName(packageName: String): String {
@@ -119,39 +194,20 @@ class NotificationCaptureService : NotificationListenerService() {
         }
     }
 
-    private fun isDuplicateWithinWindow(
-        packageName: String,
-        title: String,
-        text: String,
-        nowMillis: Long
-    ): Boolean {
-        synchronized(recentLock) {
-            recentEntries.removeAll { nowMillis - it.savedAtMillis > DUPLICATE_WINDOW_MS }
-            val duplicate = recentEntries.any {
-                it.packageName == packageName &&
-                    it.title == title &&
-                    it.text == text &&
-                    (nowMillis - it.savedAtMillis) <= DUPLICATE_WINDOW_MS
+    private fun isUnchangedForKey(key: String, title: String, text: String): Boolean {
+        val contentHash = 31 * title.hashCode() + text.hashCode()
+        synchronized(recentKeyLock) {
+            val previousHash = lastContentHashByKey[key]
+            if (previousHash != null && previousHash == contentHash) {
+                return true
             }
-            if (duplicate) return true
-
-            if (recentEntries.size >= MAX_RECENT_ENTRIES) {
-                recentEntries.removeFirst()
-            }
-            recentEntries.addLast(
-                RecentSignature(
-                    packageName = packageName,
-                    title = title,
-                    text = text,
-                    savedAtMillis = nowMillis
-                )
-            )
+            lastContentHashByKey[key] = contentHash
             return false
         }
     }
 
     companion object {
-        private const val DUPLICATE_WINDOW_MS = 5_000L
-        private const val MAX_RECENT_ENTRIES = 20
+        private const val MAX_TRACKED_KEYS = 100
+        private const val FALLBACK_NO_TEXT = "(no text)"
     }
 }
