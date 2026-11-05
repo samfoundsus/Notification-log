@@ -19,6 +19,9 @@ object TimeFormatUtil {
     private val exactDateTimeFormatter: DateTimeFormatter =
         DateTimeFormatter.ofPattern("EEE, d MMM yyyy · h:mm a", Locale.getDefault())
 
+    private val exactTimeFormatter: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+
     fun getEpochDay(timestamp: Long, zoneId: ZoneId = ZoneId.systemDefault()): Long {
         return Instant.ofEpochMilli(timestamp).atZone(zoneId).toLocalDate().toEpochDay()
     }
@@ -70,5 +73,12 @@ object TimeFormatUtil {
         zoneId: ZoneId = ZoneId.systemDefault()
     ): String {
         return Instant.ofEpochMilli(timestamp).atZone(zoneId).format(exactDateTimeFormatter)
+    }
+
+    fun formatExactTime(
+        timestamp: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): String {
+        return Instant.ofEpochMilli(timestamp).atZone(zoneId).format(exactTimeFormatter)
     }
 }

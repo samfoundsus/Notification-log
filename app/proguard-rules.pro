@@ -12,9 +12,17 @@
 }
 -keepnames class * extends androidx.room.RoomDatabase
 
-# Keep NotificationListenerService and main entry points
+# Keep NotificationListenerService, WorkManager workers, and main entry points
 -keep public class com.example.service.NotificationCaptureService { *; }
 -keep public class com.example.MainActivity { *; }
+-keep class com.example.work.** { *; }
+-keep class * extends androidx.work.Worker
+-keep class * extends androidx.work.CoroutineWorker {
+    <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+-keep class * extends androidx.work.ListenableWorker {
+    <init>(android.content.Context, androidx.work.WorkerParameters);
+}
 
 # Paging 3 & Coroutines rules
 -dontwarn androidx.paging.**

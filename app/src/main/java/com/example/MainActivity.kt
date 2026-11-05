@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import com.example.ui.setup.SetupScreen
 import com.example.ui.theme.NotificationLogTheme
 import com.example.util.NotificationAccessUtil
 import com.example.util.PackageManagerAppIconProvider
+import com.example.work.AutoDeleteScheduler
 
 object Routes {
     const val HOME = "home"
@@ -74,11 +76,19 @@ fun NotificationLogApp() {
         PackageManagerAppIconProvider(appContext)
     }
 
+    LaunchedEffect(appContext, notificationRepository, settingsRepository) {
+        AutoDeleteScheduler.runStartupCleanupAndSchedule(
+            context = appContext,
+            notificationRepository = notificationRepository,
+            settingsRepository = settingsRepository
+        )
+    }
+
     val homeViewModel: HomeViewModel = viewModel(
-        factory = HomeViewModel.Factory(notificationRepository)
+        factory = HomeViewModel.Factory(notificationRepository, settingsRepository)
     )
     val settingsViewModel: SettingsViewModel = viewModel(
-        factory = SettingsViewModel.Factory(settingsRepository)
+        factory = SettingsViewModel.Factory(appContext, settingsRepository, notificationRepository)
     )
 
     val settingsState by settingsViewModel.settingsState.collectAsStateWithLifecycle()

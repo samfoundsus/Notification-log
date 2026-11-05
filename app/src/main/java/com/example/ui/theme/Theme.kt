@@ -11,14 +11,17 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.example.data.repository.ThemeOption
 
-private const val BACKGROUND_TINT_FRACTION = 0.10f
-private const val CONTAINER_TINT_FRACTION = 0.10f
+private const val DARK_SURFACE_BLEND_FRACTION = 0.08f
+private const val DARK_CONTAINER_BLEND_FRACTION = 0.05f
+private const val LIGHT_SURFACE_BLEND_FRACTION = 0.05f
+private const val LIGHT_CONTAINER_BLEND_FRACTION = 0.04f
 
 private val FallbackDarkColorScheme = darkColorScheme(
     primary = SeedDarkPrimary,
@@ -76,16 +79,114 @@ private val FallbackLightColorScheme = lightColorScheme(
     outlineVariant = SeedLightOutlineVariant
 )
 
-private fun ColorScheme.withIncreasedDynamicTint(): ColorScheme {
-    val tint = surfaceTint
-    return copy(
-        background = lerp(background, tint, BACKGROUND_TINT_FRACTION),
-        surface = lerp(surface, tint, BACKGROUND_TINT_FRACTION),
-        surfaceContainerLow = lerp(surfaceContainerLow, tint, CONTAINER_TINT_FRACTION),
-        surfaceContainer = lerp(surfaceContainer, tint, CONTAINER_TINT_FRACTION),
-        surfaceContainerHigh = lerp(surfaceContainerHigh, tint, CONTAINER_TINT_FRACTION),
-        surfaceContainerHighest = lerp(surfaceContainerHighest, tint, CONTAINER_TINT_FRACTION)
-    )
+fun darkenScheme(scheme: ColorScheme, isDark: Boolean): ColorScheme {
+    return if (isDark) {
+        scheme.copy(
+            background = lerp(scheme.background, Color.Black, DARK_SURFACE_BLEND_FRACTION),
+            surface = lerp(scheme.surface, Color.Black, DARK_SURFACE_BLEND_FRACTION),
+            surfaceVariant = lerp(scheme.surfaceVariant, Color.Black, DARK_SURFACE_BLEND_FRACTION),
+            surfaceDim = lerp(scheme.surfaceDim, Color.Black, DARK_SURFACE_BLEND_FRACTION),
+            surfaceBright = lerp(scheme.surfaceBright, Color.Black, DARK_SURFACE_BLEND_FRACTION),
+            surfaceContainerLowest = lerp(
+                scheme.surfaceContainerLowest,
+                Color.Black,
+                DARK_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerLow = lerp(
+                scheme.surfaceContainerLow,
+                Color.Black,
+                DARK_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainer = lerp(
+                scheme.surfaceContainer,
+                Color.Black,
+                DARK_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerHigh = lerp(
+                scheme.surfaceContainerHigh,
+                Color.Black,
+                DARK_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerHighest = lerp(
+                scheme.surfaceContainerHighest,
+                Color.Black,
+                DARK_SURFACE_BLEND_FRACTION
+            ),
+            primaryContainer = lerp(
+                scheme.primaryContainer,
+                Color.Black,
+                DARK_CONTAINER_BLEND_FRACTION
+            ),
+            secondaryContainer = lerp(
+                scheme.secondaryContainer,
+                Color.Black,
+                DARK_CONTAINER_BLEND_FRACTION
+            ),
+            tertiaryContainer = lerp(
+                scheme.tertiaryContainer,
+                Color.Black,
+                DARK_CONTAINER_BLEND_FRACTION
+            ),
+            errorContainer = lerp(
+                scheme.errorContainer,
+                Color.Black,
+                DARK_CONTAINER_BLEND_FRACTION
+            )
+        )
+    } else {
+        scheme.copy(
+            background = lerp(scheme.background, Color.Black, LIGHT_SURFACE_BLEND_FRACTION),
+            surface = lerp(scheme.surface, Color.Black, LIGHT_SURFACE_BLEND_FRACTION),
+            surfaceVariant = lerp(scheme.surfaceVariant, Color.Black, LIGHT_SURFACE_BLEND_FRACTION),
+            surfaceDim = lerp(scheme.surfaceDim, Color.Black, LIGHT_SURFACE_BLEND_FRACTION),
+            surfaceBright = lerp(scheme.surfaceBright, Color.Black, LIGHT_SURFACE_BLEND_FRACTION),
+            surfaceContainerLowest = lerp(
+                scheme.surfaceContainerLowest,
+                Color.Black,
+                LIGHT_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerLow = lerp(
+                scheme.surfaceContainerLow,
+                Color.Black,
+                LIGHT_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainer = lerp(
+                scheme.surfaceContainer,
+                Color.Black,
+                LIGHT_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerHigh = lerp(
+                scheme.surfaceContainerHigh,
+                Color.Black,
+                LIGHT_SURFACE_BLEND_FRACTION
+            ),
+            surfaceContainerHighest = lerp(
+                scheme.surfaceContainerHighest,
+                Color.Black,
+                LIGHT_SURFACE_BLEND_FRACTION
+            ),
+            primaryContainer = lerp(
+                scheme.primaryContainer,
+                Color.Black,
+                LIGHT_CONTAINER_BLEND_FRACTION
+            ),
+            secondaryContainer = lerp(
+                scheme.secondaryContainer,
+                Color.Black,
+                LIGHT_CONTAINER_BLEND_FRACTION
+            ),
+            tertiaryContainer = lerp(
+                scheme.tertiaryContainer,
+                Color.Black,
+                LIGHT_CONTAINER_BLEND_FRACTION
+            ),
+            errorContainer = lerp(
+                scheme.errorContainer,
+                Color.Black,
+                LIGHT_CONTAINER_BLEND_FRACTION
+            )
+        )
+    }
 }
 
 @Composable
@@ -110,7 +211,7 @@ fun NotificationLogTheme(
         else -> FallbackLightColorScheme
     }
 
-    val colorScheme = baseColorScheme.withIncreasedDynamicTint()
+    val colorScheme = darkenScheme(baseColorScheme, darkTheme)
 
     val view = LocalView.current
     if (!view.isInEditMode) {

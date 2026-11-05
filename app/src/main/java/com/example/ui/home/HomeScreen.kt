@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,21 +39,33 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -65,11 +78,14 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import com.example.R
 import com.example.data.dao.AppCount
 import com.example.data.db.NotificationEntity
+import com.example.service.NotificationCaptureService
 import com.example.ui.components.EmptyStateView
 import com.example.ui.components.GroupPosition
 import com.example.ui.components.NotificationCard
+import com.example.ui.components.toCardShape
 import com.example.util.AppIconProvider
 import com.example.util.TimeFormatUtil
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -79,6 +95,9 @@ fun HomeScreen(
     onNavigateToSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedPackage by viewModel.selectedPackage.collectAsStateWithLifecycle()
     val expandedIds by viewModel.expandedIds.collectAsStateWithLifecycle()
@@ -86,6 +105,26 @@ fun HomeScreen(
     val totalCount by viewModel.totalCount.collectAsStateWithLifecycle()
     val lazyPagingItems: LazyPagingItems<NotificationEntity> =
         viewModel.pagedNotifications.collectAsLazyPagingItems()
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val deletedMessage = stringResource(R.string.snackbar_notification_deleted)
+    val undoLabel = stringResource(R.string.snackbar_undo)
+    val appNotAvailableMessage = stringResource(R.string.snackbar_app_not_available)
+
+    LaunchedEffect(viewModel, deletedMessage, undoLabel) {
+        viewModel.deletedSnackbarEvents.collect {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            val result = snackbarHostState.showSnackbar(
+                message = deletedMessage,
+                actionLabel = undoLabel,
+                duration = SnackbarDuration.Short
+            )
+            when (result) {
+                SnackbarResult.ActionPerformed -> viewModel.undoLastDelete()
+                SnackbarResult.Dismissed -> viewModel.clearPendingDeleted()
+            }
+        }
+    }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         rememberTopAppBarState()
@@ -110,6 +149,9 @@ fun HomeScreen(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = MaterialTheme.colorScheme.surface,
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
         topBar = {
             LargeTopAppBar(
                 title = {
@@ -223,19 +265,60 @@ fun HomeScreen(
                             }
 
                             val isExpanded = notification.id in expandedIds
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = { targetValue ->
+                                    if (
+                                        targetValue == SwipeToDismissBoxValue.StartToEnd ||
+                                        targetValue == SwipeToDismissBoxValue.EndToStart
+                                    ) {
+                                        viewModel.deleteNotification(notification)
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }
+                            )
 
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp)
                             ) {
-                                NotificationCard(
-                                    notification = notification,
-                                    groupPosition = groupPosition,
-                                    expanded = isExpanded,
-                                    onToggleExpand = { viewModel.toggleExpanded(notification.id) },
-                                    iconProvider = iconProvider
-                                )
+                                SwipeToDismissBox(
+                                    state = dismissState,
+                                    enableDismissFromStartToEnd = true,
+                                    enableDismissFromEndToStart = true,
+                                    backgroundContent = {
+                                        SwipeDeleteBackground(
+                                            dismissDirection = dismissState.dismissDirection,
+                                            groupPosition = groupPosition
+                                        )
+                                    }
+                                ) {
+                                    NotificationCard(
+                                        notification = notification,
+                                        groupPosition = groupPosition,
+                                        expanded = isExpanded,
+                                        onOpenNotification = {
+                                            val opened = NotificationCaptureService.openNotificationOrApp(
+                                                context = context,
+                                                notificationKey = notification.notificationKey,
+                                                packageName = notification.packageName
+                                            )
+                                            if (!opened) {
+                                                coroutineScope.launch {
+                                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                                    snackbarHostState.showSnackbar(
+                                                        message = appNotAvailableMessage,
+                                                        duration = SnackbarDuration.Short
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onToggleExpand = { viewModel.toggleExpanded(notification.id) },
+                                        iconProvider = iconProvider
+                                    )
+                                }
 
                                 Spacer(
                                     modifier = Modifier.height(
@@ -247,6 +330,45 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeDeleteBackground(
+    dismissDirection: SwipeToDismissBoxValue,
+    groupPosition: GroupPosition,
+    modifier: Modifier = Modifier
+) {
+    val shape = remember(groupPosition) { groupPosition.toCardShape() }
+    val colorScheme = MaterialTheme.colorScheme
+    val isSwiping = dismissDirection != SwipeToDismissBoxValue.Settled
+    val backgroundColor = if (isSwiping) {
+        colorScheme.errorContainer
+    } else {
+        colorScheme.surface.copy(alpha = 0f)
+    }
+    val alignment = when (dismissDirection) {
+        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+        else -> Alignment.CenterEnd
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clip(shape)
+            .background(backgroundColor)
+            .padding(horizontal = 20.dp),
+        contentAlignment = alignment
+    ) {
+        if (isSwiping) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_glyph_delete),
+                contentDescription = null,
+                tint = colorScheme.onErrorContainer,
+                modifier = Modifier.size(22.dp)
+            )
         }
     }
 }

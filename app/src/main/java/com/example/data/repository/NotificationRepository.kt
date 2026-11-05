@@ -11,16 +11,36 @@ import kotlinx.coroutines.flow.Flow
 class NotificationRepository(
     private val dao: NotificationDao
 ) {
-    val distinctAppsWithCounts: Flow<List<AppCount>> = dao.getDistinctAppsWithCounts()
-    val totalCount: Flow<Int> = dao.getTotalCountFlow()
+    val totalSavedCount: Flow<Int> = dao.getTotalSavedCountFlow()
+
+    fun getDistinctAppsWithCounts(hideOngoingAndSystem: Boolean): Flow<List<AppCount>> {
+        return dao.getDistinctAppsWithCounts(hideOngoingAndSystem)
+    }
+
+    fun getVisibleCount(hideOngoingAndSystem: Boolean): Flow<Int> {
+        return dao.getVisibleCountFlow(hideOngoingAndSystem)
+    }
 
     suspend fun insert(notification: NotificationEntity) {
         dao.insert(notification)
     }
 
+    suspend fun deleteById(id: Long) {
+        dao.deleteById(id)
+    }
+
+    suspend fun deleteAll() {
+        dao.deleteAll()
+    }
+
+    suspend fun deleteOlderThan(cutoff: Long) {
+        dao.deleteOlderThan(cutoff)
+    }
+
     fun getPagedNotifications(
         packageName: String?,
-        searchQuery: String
+        searchQuery: String,
+        hideOngoingAndSystem: Boolean
     ): Flow<PagingData<NotificationEntity>> {
         val trimmedQuery = searchQuery.trim()
         return Pager(
@@ -33,16 +53,16 @@ class NotificationRepository(
             pagingSourceFactory = {
                 when {
                     packageName.isNullOrEmpty() && trimmedQuery.isEmpty() -> {
-                        dao.getAllPaged()
+                        dao.getAllPaged(hideOngoingAndSystem)
                     }
                     !packageName.isNullOrEmpty() && trimmedQuery.isEmpty() -> {
-                        dao.getByPackagePaged(packageName)
+                        dao.getByPackagePaged(packageName, hideOngoingAndSystem)
                     }
                     packageName.isNullOrEmpty() && trimmedQuery.isNotEmpty() -> {
-                        dao.searchPaged(trimmedQuery)
+                        dao.searchPaged(trimmedQuery, hideOngoingAndSystem)
                     }
                     else -> {
-                        dao.searchByPackagePaged(packageName!!, trimmedQuery)
+                        dao.searchByPackagePaged(packageName!!, trimmedQuery, hideOngoingAndSystem)
                     }
                 }
             }

@@ -29,6 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -37,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,12 +71,23 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val settings by viewModel.settingsState.collectAsStateWithLifecycle()
+    val savedCount by viewModel.savedNotificationsCount.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         rememberTopAppBarState()
     )
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val allClearedMessage = stringResource(R.string.snackbar_all_cleared)
+
+    LaunchedEffect(viewModel, allClearedMessage) {
+        viewModel.allClearedEvents.collect {
+            snackbarHostState.showSnackbar(message = allClearedMessage)
+        }
+    }
+
     var showThemeDialog by rememberSaveable { mutableStateOf(false) }
     var showAutoDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    var showClearAllDialog by rememberSaveable { mutableStateOf(false) }
 
     val colorScheme = MaterialTheme.colorScheme
     val switchColors = SwitchDefaults.colors(
@@ -85,12 +99,17 @@ fun SettingsScreen(
         uncheckedBorderColor = colorScheme.outlineVariant
     )
 
+    val savedCountText = stringResource(R.string.settings_saved_count_format, savedCount)
+
     Scaffold(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets.safeDrawing,
         containerColor = colorScheme.surface,
+        snackbarHost = {
+            SnackbarHost(hostState = snackbarHostState)
+        },
         topBar = {
             LargeTopAppBar(
                 title = {
@@ -162,6 +181,29 @@ fun SettingsScreen(
 
             item {
                 Spacer(modifier = Modifier.height(16.dp))
+                SettingsSectionHeader(text = stringResource(R.string.settings_section_list_view))
+            }
+
+            item {
+                SettingsRowCard(
+                    title = stringResource(R.string.settings_hide_ongoing_title),
+                    subtitle = stringResource(R.string.settings_hide_ongoing_subtitle),
+                    groupPosition = GroupPosition.SINGLE,
+                    onClick = { viewModel.updateHideOngoingAndSystem(!settings.hideOngoingAndSystem) },
+                    testTag = "settings_row_hide_ongoing_switch",
+                    trailingContent = {
+                        Switch(
+                            checked = settings.hideOngoingAndSystem,
+                            onCheckedChange = { viewModel.updateHideOngoingAndSystem(it) },
+                            colors = switchColors,
+                            modifier = Modifier.testTag("hide_ongoing_switch")
+                        )
+                    }
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
                 SettingsSectionHeader(text = stringResource(R.string.settings_section_storage))
             }
 
@@ -184,10 +226,18 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(2.dp))
                 SettingsRowCard(
                     title = stringResource(R.string.settings_auto_delete_title),
-                    subtitle = autoDeleteLabel(settings.autoDeleteOption),
-                    groupPosition = GroupPosition.BOTTOM,
+                    subtitle = "${autoDeleteLabel(settings.autoDeleteOption)}\n$savedCountText",
+                    groupPosition = GroupPosition.MIDDLE,
                     onClick = { showAutoDeleteDialog = true },
                     testTag = "settings_row_auto_delete_period"
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                SettingsRowCard(
+                    title = stringResource(R.string.settings_clear_all_title),
+                    subtitle = savedCountText,
+                    groupPosition = GroupPosition.BOTTOM,
+                    onClick = { showClearAllDialog = true },
+                    testTag = "settings_row_clear_all"
                 )
             }
 
@@ -247,6 +297,52 @@ fun SettingsScreen(
                 showAutoDeleteDialog = false
             },
             onDismiss = { showAutoDeleteDialog = false }
+        )
+    }
+
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            containerColor = colorScheme.surfaceContainerHigh,
+            titleContentColor = colorScheme.onSurface,
+            textContentColor = colorScheme.onSurfaceVariant,
+            title = {
+                Text(
+                    text = stringResource(R.string.settings_clear_all_dialog_title),
+                    style = MaterialTheme.typography.headlineSmall
+                )
+            },
+            text = {
+                Text(
+                    text = stringResource(R.string.settings_clear_all_dialog_message),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearAllDialog = false },
+                    modifier = Modifier.testTag("clear_all_cancel_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.dialog_cancel),
+                        color = colorScheme.primary
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearAllDialog = false
+                        viewModel.clearAllNotifications()
+                    },
+                    modifier = Modifier.testTag("clear_all_confirm_button")
+                ) {
+                    Text(
+                        text = stringResource(R.string.dialog_delete),
+                        color = colorScheme.error
+                    )
+                }
+            }
         )
     }
 }

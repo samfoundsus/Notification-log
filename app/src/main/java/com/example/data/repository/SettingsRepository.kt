@@ -40,6 +40,7 @@ enum class AutoDeleteOption(val storageKey: String, val days: Int?) {
 data class UserSettings(
     val themeOption: ThemeOption = ThemeOption.SYSTEM,
     val dynamicColorEnabled: Boolean = true,
+    val hideOngoingAndSystem: Boolean = false,
     val autoDeleteEnabled: Boolean = false,
     val autoDeleteOption: AutoDeleteOption = AutoDeleteOption.OFF
 )
@@ -49,6 +50,7 @@ class SettingsRepository(private val context: Context) {
     private object Keys {
         val THEME = stringPreferencesKey("theme_option")
         val DYNAMIC_COLOR_ENABLED = booleanPreferencesKey("dynamic_color_enabled")
+        val HIDE_ONGOING_AND_SYSTEM = booleanPreferencesKey("hide_ongoing_and_system")
         val AUTO_DELETE_ENABLED = booleanPreferencesKey("auto_delete_enabled")
         val AUTO_DELETE_OPTION = stringPreferencesKey("auto_delete_option")
         val LAST_NON_OFF_AUTO_DELETE = stringPreferencesKey("last_non_off_auto_delete")
@@ -57,6 +59,7 @@ class SettingsRepository(private val context: Context) {
     val settingsFlow: Flow<UserSettings> = context.settingsDataStore.data.map { prefs ->
         val theme = ThemeOption.fromKey(prefs[Keys.THEME])
         val dynamicColor = prefs[Keys.DYNAMIC_COLOR_ENABLED] ?: true
+        val hideOngoing = prefs[Keys.HIDE_ONGOING_AND_SYSTEM] ?: false
         val rawAutoDelete = prefs[Keys.AUTO_DELETE_OPTION]
         val autoDeleteOption = if (rawAutoDelete == null) {
             AutoDeleteOption.OFF
@@ -67,6 +70,7 @@ class SettingsRepository(private val context: Context) {
         UserSettings(
             themeOption = theme,
             dynamicColorEnabled = dynamicColor,
+            hideOngoingAndSystem = hideOngoing,
             autoDeleteEnabled = enabled,
             autoDeleteOption = if (enabled && autoDeleteOption == AutoDeleteOption.OFF) {
                 AutoDeleteOption.DAYS_30
@@ -90,17 +94,27 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    suspend fun setAutoDeleteEnabled(enabled: Boolean) {
+    suspend fun setHideOngoingAndSystem(enabled: Boolean) {
+        context.settingsDataStore.edit { prefs ->
+            prefs[Keys.HIDE_ONGOING_AND_SYSTEM] = enabled
+        }
+    }
+
+    suspend fun setAutoDeleteEnabled(enabled: Boolean): AutoDeleteOption {
+        var resolvedOption = AutoDeleteOption.OFF
         context.settingsDataStore.edit { prefs ->
             prefs[Keys.AUTO_DELETE_ENABLED] = enabled
             if (enabled) {
                 val restored = AutoDeleteOption.fromKey(prefs[Keys.LAST_NON_OFF_AUTO_DELETE])
                 val target = if (restored == AutoDeleteOption.OFF) AutoDeleteOption.DAYS_30 else restored
                 prefs[Keys.AUTO_DELETE_OPTION] = target.storageKey
+                resolvedOption = target
             } else {
                 prefs[Keys.AUTO_DELETE_OPTION] = AutoDeleteOption.OFF.storageKey
+                resolvedOption = AutoDeleteOption.OFF
             }
         }
+        return resolvedOption
     }
 
     suspend fun setAutoDeleteOption(option: AutoDeleteOption) {
