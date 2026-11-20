@@ -39,19 +39,20 @@ android {
       keyPassword = "android"
     }
     create("stable") {
-      val appKeystore = file("debug.keystore")
-      val rootKeystore = file("${rootDir}/debug.keystore")
-      val resolvedKeystore =
-        when {
-          appKeystore.exists() -> appKeystore
-          rootKeystore.exists() -> rootKeystore
-          else -> null
-        }
-      if (resolvedKeystore != null) {
-        storeFile = resolvedKeystore
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
+      val releaseKeystore = file("release.keystore")
+      val keystorePassword = System.getenv("KEYSTORE_PASSWORD")
+      val alias = System.getenv("KEY_ALIAS")
+      val keyPass = System.getenv("KEY_PASSWORD")
+      if (
+        releaseKeystore.exists() &&
+        !keystorePassword.isNullOrEmpty() &&
+        !alias.isNullOrEmpty() &&
+        !keyPass.isNullOrEmpty()
+      ) {
+        storeFile = releaseKeystore
+        storePassword = keystorePassword
+        keyAlias = alias
+        keyPassword = keyPass
       }
     }
   }
